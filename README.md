@@ -27,4 +27,4 @@ The system override is shared by every connected monitor with the same vendor an
 
 The override format is an undocumented macOS mechanism. macOS can omit modes it considers unsupported, depending on the display, GPU, and operating system version.
 
-Fully vibecoded with GPT 6 Luna
+# Fully vibecoded with GPT 6 Luna
