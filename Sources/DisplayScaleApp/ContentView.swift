@@ -6,17 +6,11 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .underPageBackgroundColor)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    header
-
                     if model.displays.isEmpty {
                         emptyState
                     } else if let display = model.selectedDisplay {
@@ -27,13 +21,19 @@ struct ContentView: View {
                         actionArea
                         footer(display)
                     }
+
+                    Button(action: model.refresh) {
+                        Label("Refresh Displays", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 4)
                 }
                 .padding(30)
                 .frame(maxWidth: 820, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
         }
-        .preferredColorScheme(.dark)
         .alert(item: $model.alert) { alert in
             Alert(
                 title: Text(alert.title),
@@ -54,47 +54,11 @@ struct ContentView: View {
         .onAppear { model.refresh() }
     }
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(LinearGradient(colors: [.indigo, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "display.2")
-                    .font(.system(size: 25, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 54, height: 54)
-            .shadow(color: .cyan.opacity(0.18), radius: 14, y: 6)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("DisplayScale")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    .tracking(-0.5)
-                Text("Add sharp HiDPI scaling to external displays")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button(action: model.refresh) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 34, height: 34)
-                    .background(.quaternary, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Refresh connected displays")
-        }
-    }
-
     private var displaySelector: some View {
         HStack(spacing: 12) {
             Image(systemName: "display")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.cyan)
-                .frame(width: 42, height: 42)
-                .background(.cyan.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("DISPLAY")
@@ -116,13 +80,9 @@ struct ContentView: View {
                 .labelsHidden()
                 .frame(maxWidth: 250)
             } else {
-                Text("EXTERNAL")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.8)
-                    .foregroundStyle(.cyan)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.cyan.opacity(0.1), in: Capsule())
+                Text("External display")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(16)
@@ -136,14 +96,14 @@ struct ContentView: View {
                 value: display.nativeSize.label,
                 detail: display.nativeResolutionSource,
                 symbol: "viewfinder",
-                tint: .cyan
+                tint: .accentColor
             )
             ResolutionTile(
                 eyebrow: "SCALE PREVIEW",
                 value: (model.selectedLogicalSize.map { "\($0.label) UI" }) ?? "—",
                 detail: "\(model.selectedLogicalSize.map { PixelSize(width: $0.width * 2, height: $0.height * 2).label } ?? "—") HiDPI render",
                 symbol: "sparkles",
-                tint: .indigo
+                tint: .accentColor
             )
         }
     }
@@ -168,7 +128,6 @@ struct ContentView: View {
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.white)
             }
 
             Slider(
@@ -179,7 +138,6 @@ struct ContentView: View {
                 in: 110...Double(display.maximumScalePercent),
                 step: 5
             )
-            .tint(.cyan)
             .disabled(display.maximumScalePercent <= 110)
 
             HStack {
@@ -189,7 +147,7 @@ struct ContentView: View {
             }
             .font(.system(size: 9, weight: .bold, design: .rounded))
             .tracking(1)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
 
             Text("A higher percentage makes controls larger while keeping text rendered at 2× for sharper edges.")
                 .font(.system(size: 12))
@@ -204,9 +162,8 @@ struct ContentView: View {
         HStack(spacing: 0) {
             Image(systemName: "rectangle.on.rectangle")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.mint)
-                .frame(width: 42, height: 42)
-                .background(.mint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Looks like \(model.selectedLogicalSize?.label ?? "—")")
@@ -225,10 +182,7 @@ struct ContentView: View {
                 Text("2× HiDPI")
             }
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.mint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.mint.opacity(0.1), in: Capsule())
+            .foregroundStyle(.secondary)
         }
         .padding(16)
         .panelStyle()
@@ -252,7 +206,7 @@ struct ContentView: View {
             if let status = model.latestStatus {
                 Text(status.message)
                     .font(.system(size: 11))
-                    .foregroundStyle(status.style == .success ? .mint : .secondary)
+                    .foregroundStyle(status.style == .success ? .green : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -271,7 +225,6 @@ struct ContentView: View {
                     .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.cyan)
                 .disabled(model.isBusy)
 
                 if model.selectedOverrideInstalled {
@@ -283,9 +236,7 @@ struct ContentView: View {
                 Spacer()
 
                 Button("Displays Settings", action: model.openDisplaysSettings)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.bordered)
             }
         }
         .padding(18)
@@ -300,9 +251,8 @@ struct ContentView: View {
                 Text("macOS loads display overrides at startup. Restart once after adding or removing modes.")
                 Text("The override is per display model, so identical screens use the same scale list.")
                 if model.selectedOverrideInstalled {
-                    Button("Remove DisplayScale modes…") { showingRemoveConfirmation = true }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.red.opacity(0.85))
+                    Button("Remove DisplayScale modes…", role: .destructive) { showingRemoveConfirmation = true }
+                        .buttonStyle(.bordered)
                         .padding(.top, 3)
                 } else if model.selectedForeignOverrideExists && !model.selectedBackupExists {
                     Text("An existing override will be copied aside before DisplayScale replaces it.")
@@ -320,21 +270,18 @@ struct ContentView: View {
     private var emptyState: some View {
         VStack(spacing: 17) {
             Image(systemName: "display.2")
-                .font(.system(size: 45, weight: .light))
-                .foregroundStyle(.cyan.opacity(0.8))
+                .font(.system(size: 40, weight: .regular))
+                .foregroundStyle(.secondary)
                 .padding(.top, 10)
             VStack(spacing: 6) {
                 Text("Connect an external display")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .font(.title3.weight(.semibold))
                 Text("DisplayScale detects connected screens and reads their native resolution automatically.")
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 400)
             }
-            Button("Refresh displays", action: model.refresh)
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 62)
@@ -363,7 +310,7 @@ struct ContentView: View {
 
     private var statusIcon: some View {
         let ready = model.selectedModeLoaded
-        let color: Color = ready ? .mint : (model.selectedOverrideInstalled ? .orange : .cyan)
+        let color: Color = ready ? .green : (model.selectedOverrideInstalled ? .orange : .accentColor)
         return Image(systemName: ready ? "checkmark.circle.fill" : (model.selectedOverrideInstalled ? "clock.fill" : "sparkles"))
             .font(.system(size: 22))
             .foregroundStyle(color)
@@ -424,11 +371,10 @@ private struct ResolutionTile: View {
 
 private extension View {
     func panelStyle() -> some View {
-        background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.white.opacity(0.07), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
             }
-            .shadow(color: .black.opacity(0.08), radius: 18, y: 8)
     }
 }
