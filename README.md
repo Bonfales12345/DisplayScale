@@ -4,9 +4,7 @@ DisplayScale is a native macOS utility for changing the built-in display resolut
 
 ## Build and install
 
-Run `./build.sh` to create `build/DisplayScale.pkg`. By default, the installer places `DisplayScale.app` in `/Applications` and the matching preference pane in `/Library/PreferencePanes`. macOS Installer requests administrator authorization for these system-wide locations.
-
-Use `./build.sh --without-prefpane` to create an app-only installer package. `--with-prefpane` is also available to explicitly include the pane.
+Run `./build.sh` to create `build/DisplayScale.pkg`. The Installer lets you choose whether to install the System Settings preference pane; it is selected by default. The standalone app is always installed in `/Applications`, and the optional pane goes in `/Library/PreferencePanes`. macOS Installer requests administrator authorization for these system-wide locations.
 
 For a local app build without an installer, run `./build-app.sh`; it writes `build/DisplayScale.app`.
 
