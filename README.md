@@ -25,3 +25,6 @@ DisplayScale reads built-in panel modes from macOS. For external displays, it re
 The system override is shared by every connected monitor with the same vendor and product ID. When replacing another app’s override, DisplayScale saves it beside the new file with a `.displayscale-backup` suffix and restores it when its modes are removed. Removing modes requires a restart to take effect.
 
 The override format is an undocumented macOS mechanism. macOS can omit modes it considers unsupported, depending on the display, GPU, and operating system version.
+
+
+## Fully vibecoded with GPT 6 Luna
