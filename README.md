@@ -1,10 +1,12 @@
 # DisplayScale
 
-DisplayScale is a native macOS utility for adding HiDPI “looks like” modes to external displays that macOS does not offer them for by default.
+DisplayScale is a native macOS utility for changing the built-in display resolution and adding HiDPI “looks like” modes to external displays that macOS does not offer them for by default.
 
 ## Build and install
 
-Run `./build.sh` to create `build/DisplayScale.pkg`. The installer places `DisplayScale.app` in `/Applications` and the matching preference pane in `/Library/PreferencePanes`. The installer contains both separate bundles, built from the same controller, view model, and interface source. macOS Installer requests administrator authorization for these system-wide locations.
+Run `./build.sh` to create `build/DisplayScale.pkg`. By default, the installer places `DisplayScale.app` in `/Applications` and the matching preference pane in `/Library/PreferencePanes`. macOS Installer requests administrator authorization for these system-wide locations.
+
+Use `./build.sh --without-prefpane` to create an app-only installer package. `--with-prefpane` is also available to explicitly include the pane.
 
 For a local app build without an installer, run `./build-app.sh`; it writes `build/DisplayScale.app`.
 
@@ -16,15 +18,12 @@ DisplayScale appears in System Settings with the same display selector, scale pr
 
 ## Use
 
-1. Connect the external display and choose a UI percentage.
-2. Select **Add HiDPI modes** and approve the macOS administrator prompt.
-3. Restart the Mac once so macOS loads the display override.
-4. Open DisplayScale again and select **Apply _n_% scale**.
+For the built-in display, choose one of the resolutions macOS reports and select **Set Resolution**. This applies the mode directly without installing an override or restarting.
 
-DisplayScale reads the monitor’s preferred timing from EDID, calculates workspace dimensions from that native pixel size, and adds 2× render modes in 5% increments. Scale choices are clamped to a usable workspace size and a 250% maximum.
+For an external display, choose a UI percentage, select **Add HiDPI modes**, and approve the macOS administrator prompt. Restart once so macOS loads the display override, then reopen DisplayScale and select **Apply _n_% scale**.
+
+DisplayScale reads built-in panel modes from macOS. For external displays, it reads the monitor’s preferred timing from EDID, calculates workspace dimensions from that native pixel size, and adds 2× render modes in 5% increments. External scale choices are clamped to a usable workspace size and a 250% maximum.
 
 The system override is shared by every connected monitor with the same vendor and product ID. When replacing another app’s override, DisplayScale saves it beside the new file with a `.displayscale-backup` suffix and restores it when its modes are removed. Removing modes requires a restart to take effect.
 
 The override format is an undocumented macOS mechanism. macOS can omit modes it considers unsupported, depending on the display, GPU, and operating system version.
-
-# Fully vibecoded with GPT 6 Luna

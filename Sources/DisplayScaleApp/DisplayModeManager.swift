@@ -5,6 +5,8 @@ import Foundation
 enum DisplayScaleError: LocalizedError {
     case displayNotFound
     case modeNotLoaded
+    case builtInModeUnavailable
+    case builtInOverrideUnsupported
     case configurationFailed(CGError)
     case plistCreationFailed
     case privilegeToolFailed(String)
@@ -15,6 +17,10 @@ enum DisplayScaleError: LocalizedError {
             return "That display is no longer connected. Refresh the display list and try again."
         case .modeNotLoaded:
             return "macOS has not loaded this scale yet. Install the modes, restart your Mac, then try again."
+        case .builtInModeUnavailable:
+            return "That resolution is no longer available for the built-in display. Refresh the display list and try again."
+        case .builtInOverrideUnsupported:
+            return "Built-in display resolutions are managed directly by macOS and do not use display overrides."
         case .configurationFailed(let code):
             return "macOS could not apply this display mode (error \(code.rawValue)). Quit full-screen apps and try again."
         case .plistCreationFailed:
@@ -26,15 +32,15 @@ enum DisplayScaleError: LocalizedError {
 }
 
 enum DisplayModeManager {
-    static func containsHiDPIMode(for display: ExternalDisplay, percent: Int) -> Bool {
-        guard let target = matchingMode(for: display, percent: percent) else { return false }
+    static func containsHiDPIMode(for display: DisplayTarget, percent: Int, builtInModeID: String? = nil) -> Bool {
+        guard let target = matchingMode(for: display, percent: percent, builtInModeID: builtInModeID) else { return false }
         return target.isUsableForDesktopGUI()
     }
 
-    static func applyPermanently(to display: ExternalDisplay, percent: Int) throws {
+    static func applyPermanently(to display: DisplayTarget, percent: Int, builtInModeID: String? = nil) throws {
         guard CGDisplayIsActive(display.id) != 0 else { throw DisplayScaleError.displayNotFound }
-        guard let mode = matchingMode(for: display, percent: percent) else {
-            throw DisplayScaleError.modeNotLoaded
+        guard let mode = matchingMode(for: display, percent: percent, builtInModeID: builtInModeID) else {
+            throw display.isBuiltIn ? DisplayScaleError.builtInModeUnavailable : DisplayScaleError.modeNotLoaded
         }
 
         var configuration: CGDisplayConfigRef?
@@ -55,7 +61,8 @@ enum DisplayModeManager {
         }
     }
 
-    static func installModes(for display: ExternalDisplay) throws {
+    static func installModes(for display: DisplayTarget) throws {
+        guard !display.isBuiltIn else { throw DisplayScaleError.builtInOverrideUnsupported }
         let plist = try overridePlist(for: display)
         let stagingURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("DisplayScale-\(UUID().uuidString).plist")
@@ -79,7 +86,8 @@ enum DisplayModeManager {
         try runAsAdministrator(command)
     }
 
-    static func removeModes(for display: ExternalDisplay) throws {
+    static func removeModes(for display: DisplayTarget) throws {
+        guard !display.isBuiltIn else { throw DisplayScaleError.builtInOverrideUnsupported }
         let target = display.overrideURL.path
         let backup = display.backupURL.path
         let command = """
@@ -91,21 +99,36 @@ enum DisplayModeManager {
         try runAsAdministrator(command)
     }
 
-    static func ownsOverride(for display: ExternalDisplay) -> Bool {
+    static func ownsOverride(for display: DisplayTarget) -> Bool {
+        guard !display.isBuiltIn else { return false }
         guard let data = try? Data(contentsOf: display.overrideURL),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let name = plist["DisplayProductName"] as? String else { return false }
         return name.hasPrefix("DisplayScale")
     }
 
-    static func hasForeignOverride(for display: ExternalDisplay) -> Bool {
-        FileManager.default.fileExists(atPath: display.overrideURL.path) && !ownsOverride(for: display)
+    static func hasForeignOverride(for display: DisplayTarget) -> Bool {
+        guard !display.isBuiltIn else { return false }
+        return FileManager.default.fileExists(atPath: display.overrideURL.path) && !ownsOverride(for: display)
     }
 
-    private static func matchingMode(for display: ExternalDisplay, percent: Int) -> CGDisplayMode? {
+    private static func matchingMode(
+        for display: DisplayTarget,
+        percent: Int,
+        builtInModeID: String? = nil
+    ) -> CGDisplayMode? {
         let logical = display.logicalSize(forPercent: percent)
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         let modes = (CGDisplayCopyAllDisplayModes(display.id, options) as? [CGDisplayMode]) ?? []
+        if display.isBuiltIn {
+            guard let target = display.builtInMode(id: builtInModeID) ?? display.builtInMode(forPercent: percent) else { return nil }
+            let matches = modes.filter {
+                $0.width == target.width && $0.height == target.height &&
+                $0.pixelWidth == target.pixelWidth && $0.pixelHeight == target.pixelHeight &&
+                $0.isUsableForDesktopGUI()
+            }
+            return matches.max { $0.refreshRate < $1.refreshRate }
+        }
         return modes.first { mode in
             mode.width == logical.width &&
             mode.height == logical.height &&
@@ -115,7 +138,7 @@ enum DisplayModeManager {
         }
     }
 
-    private static func overridePlist(for display: ExternalDisplay) throws -> Data {
+    private static func overridePlist(for display: DisplayTarget) throws -> Data {
         var resolutionData: [Data] = []
         for percent in display.availableScalePercents {
             let logical = display.logicalSize(forPercent: percent)

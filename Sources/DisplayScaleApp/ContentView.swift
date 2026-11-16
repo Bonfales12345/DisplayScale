@@ -65,14 +65,17 @@ struct ContentView: View {
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(1.2)
                     .foregroundStyle(.secondary)
-                Text(model.selectedDisplay?.name ?? "External display")
+                Text(model.selectedDisplay?.name ?? "Display")
                     .font(.system(size: 15, weight: .medium))
             }
 
             Spacer()
 
             if model.displays.count > 1 {
-                Picker("Display", selection: $model.selectedDisplayID) {
+                Picker("Display", selection: Binding(
+                    get: { model.selectedDisplayID },
+                    set: { model.selectDisplay($0) }
+                )) {
                     ForEach(model.displays) { display in
                         Text(display.name).tag(Optional(display.id))
                     }
@@ -80,7 +83,7 @@ struct ContentView: View {
                 .labelsHidden()
                 .frame(maxWidth: 250)
             } else {
-                Text("External display")
+                Text(model.selectedDisplayIsBuiltIn ? "Built-in display" : "External display")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -89,26 +92,71 @@ struct ContentView: View {
         .panelStyle()
     }
 
-    private func displaySummary(_ display: ExternalDisplay) -> some View {
+    private func displaySummary(_ display: DisplayTarget) -> some View {
         HStack(spacing: 14) {
             ResolutionTile(
-                eyebrow: "NATIVE PANEL",
+                eyebrow: display.isBuiltIn ? "BUILT-IN PANEL" : "NATIVE PANEL",
                 value: display.nativeSize.label,
                 detail: display.nativeResolutionSource,
                 symbol: "viewfinder",
                 tint: .accentColor
             )
             ResolutionTile(
-                eyebrow: "SCALE PREVIEW",
+                eyebrow: display.isBuiltIn ? "SELECTED RESOLUTION" : "SCALE PREVIEW",
                 value: (model.selectedLogicalSize.map { "\($0.label) UI" }) ?? "—",
-                detail: "\(model.selectedLogicalSize.map { PixelSize(width: $0.width * 2, height: $0.height * 2).label } ?? "—") HiDPI render",
+                detail: display.isBuiltIn
+                    ? (model.selectedBuiltInMode?.pixelSize.label ?? "macOS display mode")
+                    : "\(model.selectedLogicalSize.map { PixelSize(width: $0.width * 2, height: $0.height * 2).label } ?? "—") HiDPI render",
                 symbol: "sparkles",
                 tint: .accentColor
             )
         }
     }
 
-    private func scalePicker(_ display: ExternalDisplay) -> some View {
+    @ViewBuilder
+    private func scalePicker(_ display: DisplayTarget) -> some View {
+        if display.isBuiltIn {
+            builtInResolutionPicker(display)
+        } else {
+            externalScalePicker(display)
+        }
+    }
+
+    private func builtInResolutionPicker(_ display: DisplayTarget) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Built-in display resolution")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("Choose a resolution already supported by macOS")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Picker("Resolution", selection: Binding(
+                get: { model.selectedBuiltInModeID ?? display.currentBuiltInModeID ?? display.builtInModes.first?.id ?? "" },
+                set: { model.selectBuiltInMode($0) }
+            )) {
+                ForEach(display.builtInModes) { mode in
+                    Text("\(mode.logicalSize.label)  ·  \(mode.pixelSize.label)")
+                        .tag(mode.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(display.builtInModes.isEmpty)
+
+            Text("These are the built-in panel modes macOS reports for this display. Applying one changes the display resolution directly.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .panelStyle()
+    }
+
+    private func externalScalePicker(_ display: DisplayTarget) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -158,7 +206,7 @@ struct ContentView: View {
         .panelStyle()
     }
 
-    private func scalePreview(_ display: ExternalDisplay) -> some View {
+    private func scalePreview(_ display: DisplayTarget) -> some View {
         HStack(spacing: 0) {
             Image(systemName: "rectangle.on.rectangle")
                 .font(.system(size: 16, weight: .medium))
@@ -169,7 +217,9 @@ struct ContentView: View {
                 Text("Looks like \(model.selectedLogicalSize?.label ?? "—")")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text("macOS workspace size at \(model.scalePercent)%")
+                Text(display.isBuiltIn
+                    ? "Selected resolution from the built-in panel modes"
+                    : "macOS workspace size at \(model.scalePercent)%")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -178,8 +228,8 @@ struct ContentView: View {
             Spacer(minLength: 10)
 
             HStack(spacing: 5) {
-                Image(systemName: "checkmark.seal.fill")
-                Text("2× HiDPI")
+                Image(systemName: display.isBuiltIn ? "display" : "checkmark.seal.fill")
+                Text(display.isBuiltIn ? "macOS mode" : "2× HiDPI")
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
@@ -225,9 +275,9 @@ struct ContentView: View {
                     .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.isBusy)
+                .disabled(model.isBusy || (model.selectedDisplayIsBuiltIn && !model.selectedModeLoaded))
 
-                if model.selectedOverrideInstalled {
+                if !model.selectedDisplayIsBuiltIn && model.selectedOverrideInstalled {
                     Button("Update mode list") { model.installModes() }
                         .buttonStyle(.bordered)
                         .disabled(model.isBusy || model.selectedBackupExists && model.selectedForeignOverrideExists)
@@ -243,18 +293,22 @@ struct ContentView: View {
         .panelStyle()
     }
 
-    private func footer(_ display: ExternalDisplay) -> some View {
+    private func footer(_ display: DisplayTarget) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: "info.circle.fill")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 5) {
-                Text("macOS loads display overrides at startup. Restart once after adding or removing modes.")
-                Text("The override is per display model, so identical screens use the same scale list.")
-                if model.selectedOverrideInstalled {
+                if display.isBuiltIn {
+                    Text("Built-in resolutions use the modes macOS provides for this panel. No custom override or restart is needed.")
+                } else {
+                    Text("macOS loads display overrides at startup. Restart once after adding or removing modes.")
+                    Text("The override is per display model, so identical screens use the same scale list.")
+                }
+                if !display.isBuiltIn && model.selectedOverrideInstalled {
                     Button("Remove DisplayScale modes…", role: .destructive) { showingRemoveConfirmation = true }
                         .buttonStyle(.bordered)
                         .padding(.top, 3)
-                } else if model.selectedForeignOverrideExists && !model.selectedBackupExists {
+                } else if !display.isBuiltIn && model.selectedForeignOverrideExists && !model.selectedBackupExists {
                     Text("An existing override will be copied aside before DisplayScale replaces it.")
                         .foregroundStyle(.orange)
                 }
@@ -274,9 +328,9 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 10)
             VStack(spacing: 6) {
-                Text("Connect an external display")
+                Text("No display found")
                     .font(.title3.weight(.semibold))
-                Text("DisplayScale detects connected screens and reads their native resolution automatically.")
+                Text("DisplayScale could not find an active screen. Refresh to try again.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -289,6 +343,9 @@ struct ContentView: View {
     }
 
     private var statusTitle: String {
+        if model.selectedDisplayIsBuiltIn {
+            return model.selectedModeLoaded ? "Built-in resolutions are ready" : "No built-in resolutions found"
+        }
         if model.selectedModeLoaded { return "HiDPI scale is ready" }
         if model.selectedOverrideInstalled { return "Restart needed to load this scale" }
         if model.selectedForeignOverrideExists { return "An existing display override was found" }
@@ -296,6 +353,11 @@ struct ContentView: View {
     }
 
     private var statusDescription: String {
+        if model.selectedDisplayIsBuiltIn {
+            return model.selectedModeLoaded
+                ? "Apply the selected macOS resolution to the built-in display."
+                : "Refresh the display list and check that macOS can read this panel’s display modes."
+        }
         if model.selectedModeLoaded {
             return "Apply the selected percentage as the permanent resolution for this screen."
         }
@@ -309,6 +371,11 @@ struct ContentView: View {
     }
 
     private var statusIcon: some View {
+        if model.selectedDisplayIsBuiltIn {
+            return Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(model.selectedModeLoaded ? .green : .orange)
+        }
         let ready = model.selectedModeLoaded
         let color: Color = ready ? .green : (model.selectedOverrideInstalled ? .orange : .accentColor)
         return Image(systemName: ready ? "checkmark.circle.fill" : (model.selectedOverrideInstalled ? "clock.fill" : "sparkles"))
@@ -317,16 +384,22 @@ struct ContentView: View {
     }
 
     private var primaryTitle: String {
+        if model.selectedDisplayIsBuiltIn { return "Set Resolution" }
         if model.selectedModeLoaded { return "Apply \(model.scalePercent)% scale" }
         if model.selectedOverrideInstalled { return "Refresh HiDPI modes" }
         return "Add HiDPI modes"
     }
 
     private var primaryIcon: String {
-        model.selectedModeLoaded ? "arrow.up.right.circle.fill" : "plus.circle.fill"
+        if model.selectedDisplayIsBuiltIn { return "arrow.up.right.circle.fill" }
+        return model.selectedModeLoaded ? "arrow.up.right.circle.fill" : "plus.circle.fill"
     }
 
     private func primaryAction() {
+        if model.selectedDisplayIsBuiltIn {
+            if model.selectedModeLoaded { model.applyScale() }
+            return
+        }
         if model.selectedModeLoaded {
             model.applyScale()
         } else {

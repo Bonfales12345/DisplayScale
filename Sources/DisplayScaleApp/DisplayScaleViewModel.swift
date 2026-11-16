@@ -6,8 +6,9 @@ import Foundation
 @MainActor
 final class DisplayScaleViewModel: ObservableObject {
     private let preferences = UserDefaults(suiteName: "com.bonfales.displayscale") ?? .standard
-    @Published private(set) var displays: [ExternalDisplay] = []
+    @Published private(set) var displays: [DisplayTarget] = []
     @Published var selectedDisplayID: CGDirectDisplayID?
+    @Published private(set) var selectedBuiltInModeID: String?
     @Published var scalePercent: Int {
         didSet { preferences.set(scalePercent, forKey: "preferredScalePercent") }
     }
@@ -22,17 +23,30 @@ final class DisplayScaleViewModel: ObservableObject {
         refresh()
     }
 
-    var selectedDisplay: ExternalDisplay? {
+    var selectedDisplay: DisplayTarget? {
         displays.first { $0.id == selectedDisplayID }
     }
 
+    var selectedBuiltInMode: BuiltInDisplayMode? {
+        selectedDisplay?.builtInMode(id: selectedBuiltInModeID)
+    }
+
+    var selectedDisplayIsBuiltIn: Bool {
+        selectedDisplay?.isBuiltIn == true
+    }
+
     var selectedLogicalSize: PixelSize? {
-        selectedDisplay?.logicalSize(forPercent: scalePercent)
+        if let selectedBuiltInMode { return selectedBuiltInMode.logicalSize }
+        return selectedDisplay?.logicalSize(forPercent: scalePercent)
     }
 
     var selectedModeLoaded: Bool {
         guard let display = selectedDisplay else { return false }
-        return DisplayModeManager.containsHiDPIMode(for: display, percent: scalePercent)
+        return DisplayModeManager.containsHiDPIMode(
+            for: display,
+            percent: scalePercent,
+            builtInModeID: selectedBuiltInModeID
+        )
     }
 
     var selectedOverrideInstalled: Bool {
@@ -52,19 +66,52 @@ final class DisplayScaleViewModel: ObservableObject {
 
     func refresh() {
         let previousSelection = selectedDisplayID
-        displays = DisplayDiscovery.externalDisplays()
+        displays = DisplayDiscovery.activeDisplays()
         if let previousSelection, displays.contains(where: { $0.id == previousSelection }) {
             selectedDisplayID = previousSelection
         } else {
             selectedDisplayID = displays.first?.id
         }
-        if let display = selectedDisplay {
-            scalePercent = min(max(scalePercent, 110), display.maximumScalePercent)
+        if previousSelection != selectedDisplayID {
+            selectedBuiltInModeID = nil
         }
+        synchronizeScaleForSelectedDisplay()
+    }
+
+    func selectDisplay(_ identifier: CGDirectDisplayID?) {
+        guard selectedDisplayID != identifier else { return }
+        selectedDisplayID = identifier
+        selectedBuiltInModeID = nil
+        latestStatus = nil
+        synchronizeScaleForSelectedDisplay()
+    }
+
+    private func synchronizeScaleForSelectedDisplay() {
+        if let display = selectedDisplay {
+            if display.isBuiltIn {
+                if selectedBuiltInModeID == nil || display.builtInMode(id: selectedBuiltInModeID) == nil {
+                    selectedBuiltInModeID = display.currentBuiltInModeID ?? display.builtInModes.first?.id
+                }
+            } else {
+                selectedBuiltInModeID = nil
+                scalePercent = min(max(scalePercent, display.minimumScalePercent), display.maximumScalePercent)
+            }
+        }
+    }
+
+    func selectBuiltInMode(_ identifier: String) {
+        guard let display = selectedDisplay, display.isBuiltIn,
+              display.builtInMode(id: identifier) != nil else { return }
+        selectedBuiltInModeID = identifier
+        latestStatus = nil
     }
 
     func installModes() {
         guard let display = selectedDisplay else { return }
+        guard !display.isBuiltIn else {
+            alert = UserAlert(title: "Built-in resolution", message: "Built-in display resolutions are available directly from macOS and do not need custom modes installed.")
+            return
+        }
         guard display.vendorID != 0, display.productID != 0 else {
             alert = UserAlert(title: "Display ID unavailable", message: "macOS did not report a usable vendor and product ID for this screen, so DisplayScale cannot create its per-model override.")
             return
@@ -86,11 +133,18 @@ final class DisplayScaleViewModel: ObservableObject {
     func applyScale() {
         guard let display = selectedDisplay else { return }
         let selectedPercent = scalePercent
+        let selectedModeID = selectedBuiltInModeID
         performOperation {
-            try DisplayModeManager.applyPermanently(to: display, percent: selectedPercent)
+            try DisplayModeManager.applyPermanently(
+                to: display,
+                percent: selectedPercent,
+                builtInModeID: selectedModeID
+            )
             return StatusMessage(
-                title: "Scale applied",
-                message: "The display is now using the \(selectedPercent)% HiDPI mode. macOS saved this as the display’s permanent setting.",
+                title: display.isBuiltIn ? "Resolution applied" : "Scale applied",
+                message: display.isBuiltIn
+                    ? "The built-in display is now using \(display.builtInMode(id: selectedModeID)?.logicalSize.label ?? "the selected resolution"). macOS saved this as the display’s permanent setting."
+                    : "The display is now using the \(selectedPercent)% HiDPI mode. macOS saved this as the display’s permanent setting.",
                 style: .success
             )
         }
@@ -98,6 +152,7 @@ final class DisplayScaleViewModel: ObservableObject {
 
     func removeModes() {
         guard let display = selectedDisplay else { return }
+        guard !display.isBuiltIn else { return }
         performOperation {
             try DisplayModeManager.removeModes(for: display)
             return StatusMessage(

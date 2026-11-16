@@ -13,18 +13,46 @@ struct PixelSize: Equatable, Hashable, Sendable {
     var label: String { "\(width.formatted()) × \(height.formatted())" }
 }
 
-struct ExternalDisplay: Identifiable, Equatable, Sendable {
+struct BuiltInDisplayMode: Identifiable, Equatable, Hashable, Sendable {
+    let width: Int
+    let height: Int
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let refreshRate: Double
+    let scalePercent: Int
+
+    var id: String { "\(width)x\(height)-\(pixelWidth)x\(pixelHeight)" }
+    var logicalSize: PixelSize { PixelSize(width: width, height: height) }
+    var pixelSize: PixelSize { PixelSize(width: pixelWidth, height: pixelHeight) }
+}
+
+struct DisplayTarget: Identifiable, Equatable, Sendable {
     let id: CGDirectDisplayID
     let name: String
     let vendorID: UInt32
     let productID: UInt32
     let nativeSize: PixelSize
     let nativeResolutionSource: String
+    let isBuiltIn: Bool
+    let builtInModes: [BuiltInDisplayMode]
+    let currentBuiltInModeID: String?
 
     var vendorHex: String { String(vendorID, radix: 16) }
     var productHex: String { String(productID, radix: 16) }
 
+    func builtInMode(id: String?) -> BuiltInDisplayMode? {
+        guard let id else { return nil }
+        return builtInModes.first { $0.id == id }
+    }
+
+    func builtInMode(forPercent percent: Int) -> BuiltInDisplayMode? {
+        builtInModes.min { abs($0.scalePercent - percent) < abs($1.scalePercent - percent) }
+    }
+
     func logicalSize(forPercent percent: Int) -> PixelSize {
+        if isBuiltIn, let mode = builtInMode(forPercent: percent) {
+            return mode.logicalSize
+        }
         func evenRounded(_ value: Double) -> Int {
             max(2, Int((value / 2).rounded()) * 2)
         }
@@ -36,14 +64,21 @@ struct ExternalDisplay: Identifiable, Equatable, Sendable {
     }
 
     var maximumScalePercent: Int {
+        if isBuiltIn { return builtInModes.map(\.scalePercent).max() ?? 110 }
         let widthLimit = nativeSize.width * 100 / 480
         let heightLimit = nativeSize.height * 100 / 270
         let raw = min(250, min(widthLimit, heightLimit))
         return max(110, (raw / 5) * 5)
     }
 
+    var minimumScalePercent: Int {
+        if isBuiltIn { return builtInModes.map(\.scalePercent).min() ?? 110 }
+        return 110
+    }
+
     var availableScalePercents: [Int] {
-        Array(stride(from: 110, through: maximumScalePercent, by: 5))
+        if isBuiltIn { return Array(Set(builtInModes.map(\.scalePercent))).sorted() }
+        return Array(stride(from: 110, through: maximumScalePercent, by: 5))
     }
 
     var overrideURL: URL {
@@ -58,7 +93,7 @@ struct ExternalDisplay: Identifiable, Equatable, Sendable {
 }
 
 enum DisplayDiscovery {
-    static func externalDisplays() -> [ExternalDisplay] {
+    static func activeDisplays() -> [DisplayTarget] {
         var count: UInt32 = 0
         guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
         var ids = Array(repeating: CGDirectDisplayID(), count: Int(count))
@@ -71,12 +106,36 @@ enum DisplayDiscovery {
         })
 
         return ids.prefix(Int(count)).compactMap { displayID in
-            guard CGDisplayIsBuiltin(displayID) == 0 else { return nil }
+            let isBuiltIn = CGDisplayIsBuiltin(displayID) != 0
             let vendorID = CGDisplayVendorNumber(displayID)
             let productID = CGDisplayModelNumber(displayID)
-            let info = serviceInfo.first { $0.vendorID == vendorID && $0.productID == productID }
+            let info = isBuiltIn ? nil : serviceInfo.first { $0.vendorID == vendorID && $0.productID == productID }
             let modes = (CGDisplayCopyAllDisplayModes(displayID, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary)
                 as? [CGDisplayMode]) ?? []
+            if isBuiltIn {
+                let builtInModes = supportedBuiltInModes(in: modes)
+                let largestPixelMode = modes
+                    .filter { $0.isUsableForDesktopGUI() }
+                    .max { $0.pixelWidth * $0.pixelHeight < $1.pixelWidth * $1.pixelHeight }
+                let native = largestPixelMode.map { PixelSize(width: $0.pixelWidth, height: $0.pixelHeight) }
+                    ?? PixelSize(width: Int(CGDisplayPixelsWide(displayID)), height: Int(CGDisplayPixelsHigh(displayID)))
+                guard native.width > 0, native.height > 0 else { return nil }
+                let currentMode = CGDisplayCopyDisplayMode(displayID)
+                let currentModeID = currentMode.flatMap { mode in
+                    builtInModes.first { isSameResolution($0, as: mode) }?.id
+                }
+                return DisplayTarget(
+                    id: displayID,
+                    name: screensByID[displayID]?.localizedName ?? "Built-in Display",
+                    vendorID: vendorID,
+                    productID: productID,
+                    nativeSize: native,
+                    nativeResolutionSource: "macOS panel modes",
+                    isBuiltIn: true,
+                    builtInModes: builtInModes,
+                    currentBuiltInModeID: currentModeID
+                )
+            }
             let native = info?.preferredMode ?? largestOneToOneMode(in: modes) ?? PixelSize(
                 width: Int(CGDisplayPixelsWide(displayID)),
                 height: Int(CGDisplayPixelsHigh(displayID))
@@ -84,15 +143,52 @@ enum DisplayDiscovery {
             guard native.width > 0, native.height > 0 else { return nil }
             let name = screensByID[displayID]?.localizedName ?? info?.name ?? "External Display"
             let source = info?.preferredMode != nil ? "EDID preferred timing" : "macOS display mode"
-            return ExternalDisplay(
+            return DisplayTarget(
                 id: displayID,
                 name: name,
                 vendorID: vendorID,
                 productID: productID,
                 nativeSize: native,
-                nativeResolutionSource: source
+                nativeResolutionSource: source,
+                isBuiltIn: false,
+                builtInModes: [],
+                currentBuiltInModeID: nil
             )
         }
+    }
+
+    private static func supportedBuiltInModes(in modes: [CGDisplayMode]) -> [BuiltInDisplayMode] {
+        let usableModes = modes.filter { $0.isUsableForDesktopGUI() && $0.width >= 480 && $0.height >= 270 }
+        guard let nativeWidth = usableModes.map(\.pixelWidth).max(), nativeWidth > 0 else { return [] }
+
+        let candidates = usableModes.compactMap { mode -> BuiltInDisplayMode? in
+            guard mode.width > 0, mode.height > 0,
+                  mode.pixelWidth >= mode.width, mode.pixelHeight >= mode.height else { return nil }
+            let rawPercent = Double(nativeWidth) * 100 / Double(mode.width)
+            guard (100...300).contains(rawPercent) else { return nil }
+            let scalePercent = Int((rawPercent / 5).rounded()) * 5
+            return BuiltInDisplayMode(
+                width: mode.width,
+                height: mode.height,
+                pixelWidth: mode.pixelWidth,
+                pixelHeight: mode.pixelHeight,
+                refreshRate: mode.refreshRate,
+                scalePercent: scalePercent
+            )
+        }
+
+        let unique = Dictionary(grouping: candidates, by: \.id).compactMap { _, choices in
+            choices.max { $0.refreshRate < $1.refreshRate }
+        }
+        return unique.sorted {
+            if $0.scalePercent != $1.scalePercent { return $0.scalePercent < $1.scalePercent }
+            return $0.logicalSize.area > $1.logicalSize.area
+        }
+    }
+
+    private static func isSameResolution(_ candidate: BuiltInDisplayMode, as mode: CGDisplayMode) -> Bool {
+        candidate.width == mode.width && candidate.height == mode.height &&
+        candidate.pixelWidth == mode.pixelWidth && candidate.pixelHeight == mode.pixelHeight
     }
 
     private struct IODisplayInfo {
