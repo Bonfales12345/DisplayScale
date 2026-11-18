@@ -11,9 +11,9 @@ final class DisplayScalePrefPane: NSPreferencePane {
         let model = DisplayScaleViewModel()
         let content = ContentView()
             .environmentObject(model)
-            .frame(minWidth: 700, minHeight: 680)
+            .frame(minWidth: 660, minHeight: 560)
         let hostingView = NSHostingView(rootView: content)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 760, height: 720)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 720, height: 600)
         hostingView.autoresizingMask = [.width, .height]
 
         self.model = model

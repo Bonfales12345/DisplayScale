@@ -8,7 +8,7 @@ struct DisplayScaleApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 700, minHeight: 680)
+                .frame(minWidth: 660, minHeight: 560)
         }
         .windowResizability(.contentSize)
     }
