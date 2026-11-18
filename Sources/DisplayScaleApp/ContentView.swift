@@ -123,31 +123,55 @@ struct ContentView: View {
     }
 
     private func builtInResolutionPicker(_ display: DisplayTarget) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
+        let scales = model.availableBuiltInScalePercents
+        let currentScale = model.selectedBuiltInMode?.scalePercent ?? scales.first ?? 100
+        let selectedIndex = scales.firstIndex(of: currentScale) ?? 0
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Built-in display resolution")
+                    Text("UI scale")
                         .font(.system(size: 17, weight: .semibold))
-                    Text("Choose a resolution already supported by macOS")
+                    Text("Choose how large the built-in display feels")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-            }
-
-            Picker("Resolution", selection: Binding(
-                get: { model.selectedBuiltInModeID ?? display.currentBuiltInModeID ?? display.builtInModes.first?.id ?? "" },
-                set: { model.selectBuiltInMode($0) }
-            )) {
-                ForEach(display.builtInModes) { mode in
-                    Text("\(mode.logicalSize.label)  ·  \(mode.pixelSize.label)")
-                        .tag(mode.id)
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text("\(currentScale)")
+                        .font(.system(size: 35, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("%")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.menu)
-            .disabled(display.builtInModes.isEmpty)
 
-            Text("These are the built-in panel modes macOS reports for this display. Applying one changes the display resolution directly.")
+            Slider(
+                value: Binding(
+                    get: { Double(selectedIndex) },
+                    set: { index in
+                        let clampedIndex = min(max(Int(index.rounded()), 0), max(scales.count - 1, 0))
+                        guard scales.indices.contains(clampedIndex) else { return }
+                        model.selectBuiltInScale(percent: scales[clampedIndex])
+                    }
+                ),
+                in: 0...Double(max(scales.count - 1, 0)),
+                step: 1
+            )
+            .disabled(scales.count <= 1)
+
+            HStack {
+                Text("MORE SPACE")
+                Spacer()
+                Text("LARGER UI")
+            }
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .tracking(1)
+            .foregroundStyle(.secondary)
+
+            Text("The slider selects among resolutions macOS supports for this panel. Applying a scale changes the display resolution directly.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

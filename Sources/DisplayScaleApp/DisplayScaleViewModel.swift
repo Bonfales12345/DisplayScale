@@ -31,6 +31,10 @@ final class DisplayScaleViewModel: ObservableObject {
         selectedDisplay?.builtInMode(id: selectedBuiltInModeID)
     }
 
+    var availableBuiltInScalePercents: [Int] {
+        selectedDisplay?.availableScalePercents ?? []
+    }
+
     var selectedDisplayIsBuiltIn: Bool {
         selectedDisplay?.isBuiltIn == true
     }
@@ -99,10 +103,10 @@ final class DisplayScaleViewModel: ObservableObject {
         }
     }
 
-    func selectBuiltInMode(_ identifier: String) {
+    func selectBuiltInScale(percent: Int) {
         guard let display = selectedDisplay, display.isBuiltIn,
-              display.builtInMode(id: identifier) != nil else { return }
-        selectedBuiltInModeID = identifier
+              let mode = display.builtInMode(forPercent: percent) else { return }
+        selectedBuiltInModeID = mode.id
         latestStatus = nil
     }
 
